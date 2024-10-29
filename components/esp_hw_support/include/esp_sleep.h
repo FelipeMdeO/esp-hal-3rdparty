@@ -201,6 +201,7 @@ esp_err_t esp_sleep_enable_touchpad_wakeup(void);
 touch_pad_t esp_sleep_get_touchpad_wakeup_status(void);
 #endif // SOC_TOUCH_SENSOR_SUPPORTED
 
+#if defined(SOC_PM_SUPPORT_EXT0_WAKEUP) && SOC_PM_SUPPORT_EXT0_WAKEUP
 /**
  * @brief Returns true if a GPIO number is valid for use as wakeup source.
  *
@@ -211,6 +212,7 @@ touch_pad_t esp_sleep_get_touchpad_wakeup_status(void);
  * @return True if this GPIO number will be accepted as a sleep wakeup source.
  */
 bool esp_sleep_is_valid_wakeup_gpio(gpio_num_t gpio_num);
+#endif
 
 #if SOC_PM_SUPPORT_EXT0_WAKEUP
 /**
@@ -405,7 +407,8 @@ esp_err_t esp_sleep_enable_ext1_wakeup_with_level_mask(uint64_t io_mask, uint64_
 #endif // SOC_PM_SUPPORT_EXT1_WAKEUP_MODE_PER_PIN
 #endif // SOC_PM_SUPPORT_EXT1_WAKEUP
 
-#if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP
+#if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP && \
+    (SOC_PM_SUPPORT_EXT0_WAKEUP || SOC_PM_SUPPORT_EXT1_WAKEUP)
 /**
  * @brief Enable wakeup using specific gpio pins
  *
@@ -435,6 +438,7 @@ esp_err_t esp_sleep_enable_ext1_wakeup_with_level_mask(uint64_t io_mask, uint64_
 esp_err_t esp_deep_sleep_enable_gpio_wakeup(uint64_t gpio_pin_mask, esp_deepsleep_gpio_wake_up_mode_t mode);
 #endif
 
+#ifndef __NuttX__
 /**
  * @brief Enable wakeup from light sleep using GPIOs
  *
@@ -524,6 +528,7 @@ esp_err_t esp_sleep_disable_wifi_beacon_wakeup(void);
  * @return bit mask, if GPIOn caused wakeup, BIT(n) will be set
  */
 uint64_t esp_sleep_get_ext1_wakeup_status(void);
+#endif // __NuttX__
 
 #if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP
 /**

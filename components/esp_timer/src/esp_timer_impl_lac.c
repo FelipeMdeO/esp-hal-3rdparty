@@ -18,7 +18,10 @@
 #include "soc/soc.h"
 #include "soc/timer_group_reg.h"
 #include "soc/rtc.h"
+
+#ifndef __NuttX__
 #include "freertos/FreeRTOS.h"
+#endif
 
 /**
  * @file esp_timer_lac.c

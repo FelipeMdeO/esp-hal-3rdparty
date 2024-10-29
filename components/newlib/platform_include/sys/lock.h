@@ -20,9 +20,12 @@
  * configUSE_TRACE_FACILITY is enabled. If it is disabled,
  * this definition wastes 8 bytes.
  */
+
+#ifndef __NuttX__
 struct __lock {
    int reserved[23];
 };
+#endif // __NuttX__
 
 /* Compatibility definitions for the legacy ESP-specific locking implementation.
  * These used to be provided by libc/sys/xtensa/sys/lock.h in newlib.

@@ -12,9 +12,13 @@
 #include "esp_err.h"
 #include "esp_task.h"
 #include "esp_log.h"
+
+#ifndef __NuttX__
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#endif
+
 #include "esp_ipc.h"
 #include "esp_timer.h"
 #include "esp_timer_impl.h"
