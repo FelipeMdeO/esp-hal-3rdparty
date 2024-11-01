@@ -13,6 +13,7 @@
 #include "esp_memory_utils.h"
 
 #ifdef __NuttX__
+#include "esp_hr_timer.h"
 #include "esp_private/sleep_clock.h"
 #endif
 
@@ -750,7 +751,11 @@ static esp_err_t IRAM_ATTR esp_sleep_start(uint32_t pd_flags, esp_sleep_mode_t m
     // Stop UART output so that output is not lost due to APB frequency change.
     // For light sleep, suspend UART output — it will resume after wakeup.
     // For deep sleep, wait for the contents of UART FIFO to be sent.
+#ifdef __NuttX__
+    const bool deep_sleep = false;
+#else
     bool deep_sleep = (mode == ESP_SLEEP_MODE_DEEP_SLEEP);
+#endif
     bool should_skip_sleep = false;
 
     int64_t sleep_duration = (int64_t) s_config.sleep_duration - (int64_t) s_config.sleep_time_adjustment;
@@ -1254,8 +1259,14 @@ esp_err_t esp_light_sleep_start(void)
     uint32_t ccount_at_sleep_start = esp_cpu_get_cycle_count();
     esp_sleep_execute_event_callbacks(SLEEP_EVENT_HW_TIME_START, (void *)0);
 
+#ifdef __NuttX__
+    uint64_t high_res_time_at_start = esp_hr_timer_time_us();
+        uint32_t sleep_time_overhead_in = (ccount_at_sleep_start - s_config.ccount_ticks_record) / ( 160*(1000000) / 1000000ULL );
+#else
     uint64_t high_res_time_at_start = esp_timer_get_time();
     uint32_t sleep_time_overhead_in = (ccount_at_sleep_start - s_config.ccount_ticks_record) / (esp_clk_cpu_freq() / 1000000ULL);
+#endif
+
 
 #if CONFIG_ESP_SLEEP_DEBUG
     if (s_sleep_ctx != NULL) {
@@ -1338,7 +1349,11 @@ esp_err_t esp_light_sleep_start(void)
 
     // Safety net: enable WDT in case exit from light sleep fails
     wdt_hal_context_t rtc_wdt_ctx = RWDT_HAL_CONTEXT_DEFAULT();
+#ifdef __NuttX__
+    bool wdt_was_enabled = true;
+#else
     bool wdt_was_enabled = wdt_hal_is_enabled(&rtc_wdt_ctx);    // If WDT was enabled in the user code, then do not change it here.
+#endif
     if (!wdt_was_enabled) {
         wdt_hal_init(&rtc_wdt_ctx, WDT_RWDT, 0, false);
         uint32_t stage_timeout_ticks = (uint32_t)(1000ULL * rtc_clk_slow_freq_get_hz() / 1000ULL);
@@ -1388,9 +1403,13 @@ esp_err_t esp_light_sleep_start(void)
      * In this case, just ignore the time compensation and keep esp_timer monotonic.
      */
     if (rtc_time_diff > 0) {
+#ifdef __NuttX__
+        esp_hr_timer_calibration(high_res_time_at_start + rtc_time_diff);
+#else
         esp_timer_private_set(high_res_time_at_start + rtc_time_diff);
+        esp_set_time_from_rtc();
+#endif
     }
-    esp_set_time_from_rtc();
 
     esp_clk_private_unlock();
     esp_timer_private_unlock();
