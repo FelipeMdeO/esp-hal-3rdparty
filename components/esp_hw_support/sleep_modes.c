@@ -261,7 +261,6 @@ typedef struct {
     uint64_t rtc_ticks_at_sleep_start;
 } sleep_config_t;
 
-
 #if CONFIG_ESP_SLEEP_DEBUG
 static esp_sleep_context_t *s_sleep_ctx = NULL;
 

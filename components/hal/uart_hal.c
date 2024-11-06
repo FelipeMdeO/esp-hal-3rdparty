@@ -126,6 +126,7 @@ void uart_hal_set_loop_back(uart_hal_context_t *hal, bool loop_back_en)
 {
     uart_ll_set_loop_back(hal->dev, loop_back_en);
 }
+
 #ifdef __NuttX__ 
 void uart_hal_init(uart_hal_context_t *hal, uart_port_t uart_num)
 #else
