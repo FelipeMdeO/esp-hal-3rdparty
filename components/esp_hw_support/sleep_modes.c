@@ -1261,11 +1261,10 @@ esp_err_t esp_light_sleep_start(void)
 
 #ifdef __NuttX__
     uint64_t high_res_time_at_start = esp_hr_timer_time_us();
-        uint32_t sleep_time_overhead_in = (ccount_at_sleep_start - s_config.ccount_ticks_record) / ( 160*(1000000) / 1000000ULL );
 #else
     uint64_t high_res_time_at_start = esp_timer_get_time();
-    uint32_t sleep_time_overhead_in = (ccount_at_sleep_start - s_config.ccount_ticks_record) / (esp_clk_cpu_freq() / 1000000ULL);
 #endif
+    uint32_t sleep_time_overhead_in = (ccount_at_sleep_start - s_config.ccount_ticks_record) / (esp_clk_cpu_freq() / 1000000ULL);
 
 
 #if CONFIG_ESP_SLEEP_DEBUG
@@ -1404,7 +1403,7 @@ esp_err_t esp_light_sleep_start(void)
      */
     if (rtc_time_diff > 0) {
 #ifdef __NuttX__
-        esp_hr_timer_calibration(high_res_time_at_start + rtc_time_diff);
+        up_step_idletime(rtc_time_diff);
 #else
         esp_timer_private_set(high_res_time_at_start + rtc_time_diff);
         esp_set_time_from_rtc();
@@ -1897,7 +1896,6 @@ esp_err_t esp_sleep_enable_gpio_wakeup(void)
     return ESP_OK;
 }
 
-#ifndef __NuttX__
 esp_err_t esp_sleep_enable_uart_wakeup(int uart_num)
 {
     if (uart_num == UART_NUM_0) {
@@ -1911,6 +1909,7 @@ esp_err_t esp_sleep_enable_uart_wakeup(int uart_num)
     return ESP_OK;
 }
 
+#ifndef __NuttX__
 esp_err_t esp_sleep_enable_wifi_wakeup(void)
 {
 #if SOC_PM_SUPPORT_WIFI_WAKEUP
