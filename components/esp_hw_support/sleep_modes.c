@@ -15,6 +15,7 @@
 #ifdef __NuttX__
 #include "esp_hr_timer.h"
 #include "esp_private/sleep_clock.h"
+#include "espressif/esp_tickless.h"
 #endif
 
 #include "esp_sleep.h"
