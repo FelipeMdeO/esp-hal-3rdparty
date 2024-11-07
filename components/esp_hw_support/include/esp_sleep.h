@@ -438,7 +438,6 @@ esp_err_t esp_sleep_enable_ext1_wakeup_with_level_mask(uint64_t io_mask, uint64_
 esp_err_t esp_deep_sleep_enable_gpio_wakeup(uint64_t gpio_pin_mask, esp_deepsleep_gpio_wake_up_mode_t mode);
 #endif
 
-#ifndef __NuttX__
 /**
  * @brief Enable wakeup from light sleep using GPIOs
  *
@@ -528,7 +527,6 @@ esp_err_t esp_sleep_disable_wifi_beacon_wakeup(void);
  * @return bit mask, if GPIOn caused wakeup, BIT(n) will be set
  */
 uint64_t esp_sleep_get_ext1_wakeup_status(void);
-#endif // __NuttX__
 
 #if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP
 /**
