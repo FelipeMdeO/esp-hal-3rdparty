@@ -127,7 +127,11 @@ void uart_hal_set_loop_back(uart_hal_context_t *hal, bool loop_back_en)
     uart_ll_set_loop_back(hal->dev, loop_back_en);
 }
 
+#ifdef __NuttX__ 
+void uart_hal_init(uart_hal_context_t *hal, uart_port_t uart_num)
+#else
 void uart_hal_init(uart_hal_context_t *hal, int uart_num)
+#endif
 {
     // Set default clock source
     uart_ll_set_sclk(hal->dev, UART_SCLK_DEFAULT);
@@ -144,6 +148,17 @@ void uart_hal_init(uart_hal_context_t *hal, int uart_num)
     // Disable hw-flow control
     uart_ll_set_hw_flow_ctrl(hal->dev, UART_HW_FLOWCTRL_DISABLE, 100);
 }
+
+#ifdef __NuttX__
+/**
+ * @brief Check if the UART sending state machine is in the IDLE state.
+ *
+ * @param  hal Context of the HAL layer
+ *
+ * @return True if the state machine is in the IDLE state, otherwise false will be returned.
+ */
+#define uart_hal_is_tx_idle(hal)  uart_ll_is_tx_idle((hal)->dev)
+#endif
 
 uint8_t uart_hal_get_symb_len(uart_hal_context_t *hal)
 {

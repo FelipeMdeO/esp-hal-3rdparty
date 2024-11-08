@@ -21,6 +21,10 @@
 #include "hal/efuse_hal.h"
 #include "esp_hw_log.h"
 
+#ifdef __NuttX__
+#include "hal/pmu_hal.h"
+#endif
+
 static __attribute__((unused)) const char *TAG = "pmu_sleep";
 
 #define HP(state)   (PMU_MODE_HP_ ## state)

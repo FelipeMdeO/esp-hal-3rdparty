@@ -10,8 +10,29 @@
 #include "esp_task.h"
 #include "esp_attr.h"
 
+#ifdef __NuttX__
+#include <nuttx/spinlock.h>
+#define ENTER_CRITICAL_SECTION(lock) do { \
+            assert(g_flags == UINT32_MAX); \
+            g_flags = spin_lock_irqsave(lock); \
+        } while(0)
+#define LEAVE_CRITICAL_SECTION(lock) do { \
+            spin_unlock_irqrestore((lock), g_flags); \
+            g_flags = UINT32_MAX; \
+        } while(0)
+#define LOCK_INITIALIZER_UNLOCKED       0
+typedef spinlock_t lock_type_t;
+static irqstate_t g_flags = UINT32_MAX;
+#else
+#define ENTER_CRITICAL_SECTION(lock)    portENTER_CRITICAL_SAFE(lock)
+#define LEAVE_CRITICAL_SECTION(lock)    portEXIT_CRITICAL_SAFE(lock)
+#define LOCK_INITIALIZER_UNLOCKED       portMUX_INITIALIZER_UNLOCKED
+
+typedef portMUX_TYPE lock_type_t;
+#endif
+
 /* Spinlock used to protect access to the hardware registers. */
-portMUX_TYPE s_time_update_lock = portMUX_INITIALIZER_UNLOCKED;
+lock_type_t s_time_update_lock = LOCK_INITIALIZER_UNLOCKED;
 
 /* Alarm values to generate interrupt on match
  * [0] - for ESP_TIMER_TASK alarms,
@@ -21,12 +42,12 @@ uint64_t timestamp_id[2] = { UINT64_MAX, UINT64_MAX };
 
 void esp_timer_impl_lock(void)
 {
-    portENTER_CRITICAL(&s_time_update_lock);
+    ENTER_CRITICAL_SECTION(&s_time_update_lock);
 }
 
 void esp_timer_impl_unlock(void)
 {
-    portEXIT_CRITICAL(&s_time_update_lock);
+    LEAVE_CRITICAL_SECTION(&s_time_update_lock);
 }
 
 void esp_timer_private_lock(void) __attribute__((alias("esp_timer_impl_lock")));

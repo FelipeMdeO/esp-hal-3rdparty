@@ -15,9 +15,18 @@
 #include "esp_sleep.h"
 #include "esp_log.h"
 #include "esp_rom_crc.h"
+
+#ifndef __NuttX__
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
+#else
+#include "riscv/csr.h"
+#define heap_caps_free(x) kmm_free(x)
+#define heap_caps_calloc(n, size, caps) kmm_calloc(n, size)
+#define heap_caps_malloc(size, caps) kmm_malloc(size)
+#endif
+
 #include "soc/soc_caps.h"
 #include "esp_private/sleep_cpu.h"
 #include "esp_private/sleep_event.h"

@@ -12,7 +12,11 @@
 #include "esp_err.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+
+#ifndef __NuttX__
 #include "esp_heap_caps.h"
+#endif
+
 #include "esp_sleep.h"
 #include "soc/soc_caps.h"
 #include "esp_private/esp_regdma.h"
