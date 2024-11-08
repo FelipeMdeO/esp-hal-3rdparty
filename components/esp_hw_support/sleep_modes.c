@@ -24,7 +24,9 @@
 #include "esp_private/sleep_event.h"
 #include "esp_private/system_internal.h"
 #include "esp_log.h"
+#ifndef __NuttX__
 #include "esp_newlib.h"
+#endif
 #include "esp_timer.h"
 
 #include "esp_ipc_isr.h"
