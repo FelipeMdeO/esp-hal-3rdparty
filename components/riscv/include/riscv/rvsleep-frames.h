@@ -9,6 +9,10 @@
 
 #include "sdkconfig.h"
 
+#ifdef __NuttX__
+#include "soc/soc_caps.h"
+#endif
+
 /* Align a value up to nearest n-byte boundary, where n is a power of 2. */
 #define ALIGNUP(n, val) (((val) + (n) - 1) & -(n))
 

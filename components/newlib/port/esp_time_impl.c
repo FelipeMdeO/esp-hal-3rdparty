@@ -16,9 +16,7 @@
 
 #include "esp_private/system_internal.h"
 #include "esp_private/esp_clk.h"
-
 #include "esp_time_impl.h"
-
 #include "sdkconfig.h"
 
 #if CONFIG_IDF_TARGET_ESP32

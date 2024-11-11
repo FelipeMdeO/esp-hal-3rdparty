@@ -11,19 +11,44 @@
 
 #include "esp_attr.h"
 #include "esp_memory_utils.h"
+
+#ifdef __NuttX__
+#include "esp_hr_timer.h"
+#include "esp_private/sleep_clock.h"
+#include "espressif/esp_tickless.h"
+#endif
+
 #include "esp_sleep.h"
 #include "esp_private/esp_sleep_internal.h"
 #include "esp_private/esp_timer_private.h"
 #include "esp_private/sleep_event.h"
 #include "esp_private/system_internal.h"
 #include "esp_log.h"
+#ifndef __NuttX__
 #include "esp_newlib.h"
+#endif
 #include "esp_timer.h"
+
 #include "esp_ipc_isr.h"
+
+#ifdef __NuttX__
+#define CONFIG_ESP_SLEEP_WAIT_FLASH_READY_EXTRA_DELAY 2000
+#else
+#define SOC_PM_SUPPORT_PMU_STATE SOC_PM_SUPPORT_PMU_MODEM_STATE
+#endif
+
+#ifndef __NuttX__
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "soc/soc_caps.h"
 #include "driver/rtc_io.h"
+#include "driver/uart.h"
+#else
+#include <nuttx/spinlock.h>
+#include "esp_cpu.h"
+#include "esp_private/esp_timer_private.h"
+#endif
+
+#include "soc/soc_caps.h"
 #include "hal/rtc_io_hal.h"
 
 #if SOC_SLEEP_SYSTIMER_STALL_WORKAROUND
@@ -35,7 +60,7 @@
 #include "hal/timer_ll.h"
 #endif
 
-#if SOC_PM_SUPPORT_PMU_MODEM_STATE
+#if SOC_PM_SUPPORT_PMU_STATE
 #include "esp_private/pm_impl.h"
 #endif
 
@@ -45,8 +70,6 @@
 #include "hal/rtc_cntl_ll.h"
 #include "hal/rtc_hal.h"
 #endif
-
-#include "driver/uart.h"
 
 #include "soc/rtc.h"
 #include "soc/soc_caps.h"
@@ -182,6 +205,27 @@
 
 #define MAX_DSLP_HOOKS      3
 
+#ifdef __NuttX__
+#define ENTER_CRITICAL_SECTION(lock) do { \
+            assert(g_flags == UINT32_MAX); \
+            g_flags = spin_lock_irqsave(lock); \
+        } while(0)
+#define LEAVE_CRITICAL_SECTION(lock) do { \
+            spin_unlock_irqrestore((lock), g_flags); \
+            g_flags = UINT32_MAX; \
+        } while(0)
+#define LOCK_INITIALIZER_UNLOCKED       0
+
+typedef spinlock_t lock_type_t;
+static irqstate_t g_flags = UINT32_MAX;
+#else
+#define ENTER_CRITICAL_SECTION(lock)    portENTER_CRITICAL_SAFE(lock)
+#define LEAVE_CRITICAL_SECTION(lock)    portEXIT_CRITICAL_SAFE(lock)
+#define LOCK_INITIALIZER_UNLOCKED       portMUX_INITIALIZER_UNLOCKED
+
+typedef portMUX_TYPE lock_type_t;
+#endif
+
 static esp_deep_sleep_cb_t s_dslp_cb[MAX_DSLP_HOOKS] = {0};
 static esp_deep_sleep_cb_t s_dslp_phy_cb[MAX_DSLP_HOOKS] = {0};
 
@@ -194,7 +238,7 @@ typedef struct {
         int16_t     refs;
         uint16_t    reserved;   /* reserved for 4 bytes aligned */
     } domain[ESP_PD_DOMAIN_MAX];
-    portMUX_TYPE lock;
+    lock_type_t lock;
     uint64_t sleep_duration;
     uint32_t wakeup_triggers : 15;
 #if SOC_PM_SUPPORT_EXT1_WAKEUP
@@ -217,7 +261,6 @@ typedef struct {
     uint64_t rtc_ticks_at_sleep_start;
 } sleep_config_t;
 
-
 #if CONFIG_ESP_SLEEP_DEBUG
 static esp_sleep_context_t *s_sleep_ctx = NULL;
 
@@ -238,7 +281,7 @@ static sleep_config_t s_config = {
             .refs = 0
         }
     },
-    .lock = portMUX_INITIALIZER_UNLOCKED,
+    .lock = LOCK_INITIALIZER_UNLOCKED,
     .ccount_ticks_record = 0,
     .sleep_time_overhead_out = DEFAULT_SLEEP_OUT_OVERHEAD_US,
     .wakeup_triggers = 0
@@ -250,7 +293,7 @@ static bool s_light_sleep_wakeup = false;
 
 /* Updating RTC_MEMORY_CRC_REG register via set_rtc_memory_crc()
    is not thread-safe, so we need to disable interrupts before going to deep sleep. */
-static portMUX_TYPE spinlock_rtc_deep_sleep = portMUX_INITIALIZER_UNLOCKED;
+static lock_type_t spinlock_rtc_deep_sleep = LOCK_INITIALIZER_UNLOCKED;
 
 static const char *TAG = "sleep";
 static RTC_FAST_ATTR bool s_adc_tsen_enabled = false;
@@ -275,7 +318,7 @@ static esp_err_t timer_wakeup_prepare(int64_t sleep_duration);
 #if CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
 static void touch_wakeup_prepare(void);
 #endif
-#if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP
+#if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP && (SOC_PM_SUPPORT_EXT0_WAKEUP || SOC_PM_SUPPORT_EXT1_WAKEUP)
 static void gpio_deep_sleep_wakeup_prepare(void);
 #endif
 
@@ -402,28 +445,28 @@ esp_err_t esp_deep_sleep_try(uint64_t time_in_us)
 
 static esp_err_t s_sleep_hook_register(esp_deep_sleep_cb_t new_cb, esp_deep_sleep_cb_t s_cb_array[MAX_DSLP_HOOKS])
 {
-    portENTER_CRITICAL(&spinlock_rtc_deep_sleep);
+    ENTER_CRITICAL_SECTION(&spinlock_rtc_deep_sleep);
     for (int n = 0; n < MAX_DSLP_HOOKS; n++) {
         if (s_cb_array[n]==NULL || s_cb_array[n]==new_cb) {
             s_cb_array[n]=new_cb;
-            portEXIT_CRITICAL(&spinlock_rtc_deep_sleep);
+            LEAVE_CRITICAL_SECTION(&spinlock_rtc_deep_sleep);
             return ESP_OK;
         }
     }
-    portEXIT_CRITICAL(&spinlock_rtc_deep_sleep);
+    LEAVE_CRITICAL_SECTION(&spinlock_rtc_deep_sleep);
     ESP_LOGE(TAG, "Registered deepsleep callbacks exceeds MAX_DSLP_HOOKS");
     return ESP_ERR_NO_MEM;
 }
 
 static void s_sleep_hook_deregister(esp_deep_sleep_cb_t old_cb, esp_deep_sleep_cb_t s_cb_array[MAX_DSLP_HOOKS])
 {
-    portENTER_CRITICAL(&spinlock_rtc_deep_sleep);
+    ENTER_CRITICAL_SECTION(&spinlock_rtc_deep_sleep);
     for (int n = 0; n < MAX_DSLP_HOOKS; n++) {
         if(s_cb_array[n] == old_cb) {
             s_cb_array[n] = NULL;
         }
     }
-    portEXIT_CRITICAL(&spinlock_rtc_deep_sleep);
+    LEAVE_CRITICAL_SECTION(&spinlock_rtc_deep_sleep);
 }
 
 esp_err_t esp_deep_sleep_register_hook(esp_deep_sleep_cb_t new_dslp_cb)
@@ -707,7 +750,11 @@ static esp_err_t IRAM_ATTR esp_sleep_start(uint32_t pd_flags, esp_sleep_mode_t m
     // Stop UART output so that output is not lost due to APB frequency change.
     // For light sleep, suspend UART output — it will resume after wakeup.
     // For deep sleep, wait for the contents of UART FIFO to be sent.
+#ifdef __NuttX__
+    const bool deep_sleep = false;
+#else
     bool deep_sleep = (mode == ESP_SLEEP_MODE_DEEP_SLEEP);
+#endif
     bool should_skip_sleep = false;
 
     int64_t sleep_duration = (int64_t) s_config.sleep_duration - (int64_t) s_config.sleep_time_adjustment;
@@ -772,7 +819,7 @@ static esp_err_t IRAM_ATTR esp_sleep_start(uint32_t pd_flags, esp_sleep_mode_t m
     }
 #endif
 
-#if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP
+#if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP && (SOC_PM_SUPPORT_EXT0_WAKEUP || SOC_PM_SUPPORT_EXT1_WAKEUP)
     if (deep_sleep && (s_config.wakeup_triggers & RTC_GPIO_TRIG_EN)) {
         gpio_deep_sleep_wakeup_prepare();
     }
@@ -958,7 +1005,7 @@ static esp_err_t IRAM_ATTR esp_sleep_start(uint32_t pd_flags, esp_sleep_mode_t m
 #endif
 
     // Restore CPU frequency
-#if SOC_PM_SUPPORT_PMU_MODEM_STATE
+#if SOC_PM_SUPPORT_PMU_STATE
     if (pmu_sleep_pll_already_enabled()) {
         rtc_clk_cpu_freq_to_pll_and_pll_lock_release(esp_pm_impl_get_cpu_freq(PM_MODE_CPU_MAX));
     } else
@@ -1019,7 +1066,7 @@ static esp_err_t IRAM_ATTR deep_sleep_start(bool allow_sleep_rejection)
     /* Disable interrupts and stall another core in case another task writes
      * to RTC memory while we calculate RTC memory CRC.
      */
-    portENTER_CRITICAL(&spinlock_rtc_deep_sleep);
+    ENTER_CRITICAL_SECTION(&spinlock_rtc_deep_sleep);
     esp_ipc_isr_stall_other_cpu();
 
     // record current RTC time
@@ -1085,7 +1132,7 @@ static esp_err_t IRAM_ATTR deep_sleep_start(bool allow_sleep_rejection)
     }
     // Never returns here, except that the sleep is rejected.
     esp_ipc_isr_release_other_cpu();
-    portEXIT_CRITICAL(&spinlock_rtc_deep_sleep);
+    LEAVE_CRITICAL_SECTION(&spinlock_rtc_deep_sleep);
     return err;
 }
 
@@ -1183,7 +1230,7 @@ esp_err_t esp_light_sleep_start(void)
     timerret = esp_task_wdt_stop();
 #endif // CONFIG_ESP_TASK_WDT_USE_ESP_TIMER
 
-    portENTER_CRITICAL(&s_config.lock);
+    ENTER_CRITICAL_SECTION(&s_config.lock);
     /*
     Note: We are about to stall the other CPU via the esp_ipc_isr_stall_other_cpu(). However, there is a chance of
     deadlock if after stalling the other CPU, we attempt to take spinlocks already held by the other CPU that is.
@@ -1198,7 +1245,9 @@ esp_err_t esp_light_sleep_start(void)
      * section. Make sure the code on the other CPU is not holding esp_timer
      * lock, otherwise there will be deadlock.
      */
+#ifndef __NuttX__
     esp_timer_private_lock();
+#endif
 
     /* We will be calling esp_rtc_get_time_us() below. Make sure the code on the other CPU is not holding the
      * esp_rtc_get_time_us() lock, otherwise there will be deadlock. esp_rtc_get_time_us() is called via:
@@ -1210,8 +1259,14 @@ esp_err_t esp_light_sleep_start(void)
     s_config.rtc_ticks_at_sleep_start = rtc_time_get();
     uint32_t ccount_at_sleep_start = esp_cpu_get_cycle_count();
     esp_sleep_execute_event_callbacks(SLEEP_EVENT_HW_TIME_START, (void *)0);
+
+#ifdef __NuttX__
+    uint64_t high_res_time_at_start = esp_hr_timer_time_us();
+#else
     uint64_t high_res_time_at_start = esp_timer_get_time();
+#endif
     uint32_t sleep_time_overhead_in = (ccount_at_sleep_start - s_config.ccount_ticks_record) / (esp_clk_cpu_freq() / 1000000ULL);
+
 
 #if CONFIG_ESP_SLEEP_DEBUG
     if (s_sleep_ctx != NULL) {
@@ -1344,19 +1399,25 @@ esp_err_t esp_light_sleep_start(void)
      * In this case, just ignore the time compensation and keep esp_timer monotonic.
      */
     if (rtc_time_diff > 0) {
+#ifdef __NuttX__
+        up_step_idletime(rtc_time_diff);
+#else
         esp_timer_private_set(high_res_time_at_start + rtc_time_diff);
+        esp_set_time_from_rtc();
+#endif
     }
-    esp_set_time_from_rtc();
 
     esp_clk_private_unlock();
+#ifndef __NuttX__
     esp_timer_private_unlock();
+#endif
     esp_ipc_isr_release_other_cpu();
     if (!wdt_was_enabled) {
         wdt_hal_write_protect_disable(&rtc_wdt_ctx);
         wdt_hal_disable(&rtc_wdt_ctx);
         wdt_hal_write_protect_enable(&rtc_wdt_ctx);
     }
-    portEXIT_CRITICAL(&s_config.lock);
+    LEAVE_CRITICAL_SECTION(&s_config.lock);
 
 #if CONFIG_ESP_TASK_WDT_USE_ESP_TIMER
     /* Restart the Task Watchdog timer as it was stopped before sleeping. */
@@ -1535,6 +1596,7 @@ touch_pad_t esp_sleep_get_touchpad_wakeup_status(void)
 
 #endif // SOC_TOUCH_SENSOR_SUPPORTED
 
+#if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP && (SOC_PM_SUPPORT_EXT0_WAKEUP || SOC_PM_SUPPORT_EXT1_WAKEUP)
 bool esp_sleep_is_valid_wakeup_gpio(gpio_num_t gpio_num)
 {
 #if SOC_RTCIO_PIN_COUNT > 0
@@ -1543,6 +1605,7 @@ bool esp_sleep_is_valid_wakeup_gpio(gpio_num_t gpio_num)
     return GPIO_IS_DEEP_SLEEP_WAKEUP_VALID_GPIO(gpio_num);
 #endif
 }
+#endif // SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP
 
 #if SOC_PM_SUPPORT_EXT0_WAKEUP
 esp_err_t esp_sleep_enable_ext0_wakeup(gpio_num_t gpio_num, int level)
@@ -1763,6 +1826,7 @@ uint64_t esp_sleep_get_gpio_wakeup_status(void)
     return rtc_hal_gpio_get_wakeup_status();
 }
 
+#if SOC_PM_SUPPORT_EXT0_WAKEUP || SOC_PM_SUPPORT_EXT1_WAKEUP
 static void gpio_deep_sleep_wakeup_prepare(void)
 {
     for (gpio_num_t gpio_idx = GPIO_NUM_0; gpio_idx < GPIO_NUM_MAX; gpio_idx++) {
@@ -1783,7 +1847,10 @@ static void gpio_deep_sleep_wakeup_prepare(void)
     // Clear state from previous wakeup
     rtc_hal_gpio_clear_wakeup_status();
 }
+#endif // SOC_PM_SUPPORT_EXT0_WAKEUP && SOC_PM_SUPPORT_EXT1_WAKEUP
 
+#if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP && \
+    (SOC_PM_SUPPORT_EXT0_WAKEUP || SOC_PM_SUPPORT_EXT1_WAKEUP)
 esp_err_t esp_deep_sleep_enable_gpio_wakeup(uint64_t gpio_pin_mask, esp_deepsleep_gpio_wake_up_mode_t mode)
 {
     if (mode > ESP_GPIO_WAKEUP_GPIO_HIGH) {
@@ -1812,6 +1879,7 @@ esp_err_t esp_deep_sleep_enable_gpio_wakeup(uint64_t gpio_pin_mask, esp_deepslee
     s_config.wakeup_triggers |= RTC_GPIO_TRIG_EN;
     return err;
 }
+#endif
 
 #endif //SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP
 
@@ -1962,7 +2030,7 @@ esp_err_t esp_sleep_pd_config(esp_sleep_pd_domain_t domain, esp_sleep_pd_option_
     if (domain >= ESP_PD_DOMAIN_MAX || option > ESP_PD_OPTION_AUTO) {
         return ESP_ERR_INVALID_ARG;
     }
-    portENTER_CRITICAL_SAFE(&s_config.lock);
+    ENTER_CRITICAL_SECTION(&s_config.lock);
 
     int refs = (option == ESP_PD_OPTION_ON)  ? s_config.domain[domain].refs++ \
              : (option == ESP_PD_OPTION_OFF) ? --s_config.domain[domain].refs \
@@ -1970,7 +2038,7 @@ esp_err_t esp_sleep_pd_config(esp_sleep_pd_domain_t domain, esp_sleep_pd_option_
     if (refs == 0) {
         s_config.domain[domain].pd_option = option;
     }
-    portEXIT_CRITICAL_SAFE(&s_config.lock);
+    LEAVE_CRITICAL_SECTION(&s_config.lock);
     assert(refs >= 0);
     return ESP_OK;
 }

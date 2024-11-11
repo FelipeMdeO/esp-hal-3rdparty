@@ -21,12 +21,12 @@ uint64_t timestamp_id[2] = { UINT64_MAX, UINT64_MAX };
 
 void esp_timer_impl_lock(void)
 {
-    portENTER_CRITICAL(&s_time_update_lock);
+    portENTER_CRITICAL_SAFE(&s_time_update_lock);
 }
 
 void esp_timer_impl_unlock(void)
 {
-    portEXIT_CRITICAL(&s_time_update_lock);
+    LEAVE_CRITICAL_SECTION(&s_time_update_lock);
 }
 
 void esp_timer_private_lock(void) __attribute__((alias("esp_timer_impl_lock")));

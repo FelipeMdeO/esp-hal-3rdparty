@@ -20,6 +20,7 @@
  * configUSE_TRACE_FACILITY is enabled. If it is disabled,
  * this definition wastes 8 bytes.
  */
+
 struct __lock {
    int reserved[23];
 };
