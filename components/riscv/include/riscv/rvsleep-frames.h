@@ -39,6 +39,10 @@
 #define STRUCT_END(sname)       } sname;
 #endif
 
+#ifdef __NuttX__
+#include "soc/soc_caps.h"
+#endif
+
 /*
  * -------------------------------------------------------------------------------
  *     RISC-V CORE CRITICAL REGISTER CONTEXT LAYOUT FOR SLEEP
