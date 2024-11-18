@@ -151,17 +151,12 @@
 #include "esp_hr_timer.h"
 #include "esp_rtc.h"
 #include "esp_tickless.h"
-#if 0
-#define esp_timer_get_time get_system_time_us
-#define esp_timer_private_set up_step_idletime
-#define esp_set_time_from_rtc esp_rtc_driverinit
-#endif
-#if 1
+
 #define esp_timer_get_time esp_hr_timer_time_us
 #define esp_timer_private_set esp_hr_timer_calibration
 #define esp_set_time_from_rtc esp_rtc_driverinit
 #endif
-#endif 
+ 
 
 // If light sleep time is less than that, don't power down flash
 #define FLASH_PD_MIN_SLEEP_TIME_US  2000
