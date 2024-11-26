@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define CONFIG_ESP_SLEEP_WAIT_FLASH_READY_EXTRA_DELAY 0
+//#define CONFIG_IDF_TARGET_ESP32C6 1
+
 #ifdef __NuttX__
 #include <nuttx/spinlock.h>
 #endif
