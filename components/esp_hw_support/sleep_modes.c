@@ -926,9 +926,10 @@ static esp_err_t IRAM_ATTR esp_sleep_start(uint32_t pd_flags, esp_sleep_mode_t m
     esp_err_t result;
 #if SOC_PMU_SUPPORTED
     pmu_sleep_config_t config;
-    pmu_sleep_init(pmu_sleep_config_default(&config, sleep_flags, s_config.sleep_time_adjustment,
-            s_config.rtc_clk_cal_period, s_config.fast_clk_cal_period,
-            deep_sleep), deep_sleep);
+    //pmu_sleep_config_default(&config, 0, s_config.sleep_time_adjustment,
+    //        s_config.rtc_clk_cal_period, s_config.fast_clk_cal_period,
+    //        deep_sleep);
+    //pmu_sleep_init(&config, deep_sleep);
 #else
     rtc_sleep_config_t config;
     rtc_sleep_get_default_config(sleep_flags, &config);
@@ -1277,7 +1278,7 @@ esp_err_t esp_light_sleep_start(void)
      * lock, otherwise there will be deadlock.
      */
 #ifdef __NuttX__
-    spinlock_timer = spin_lock_irqsave(NULL);
+    //spinlock_timer = spin_lock_irqsave(NULL);
 #else
     esp_timer_private_lock();
 #endif
@@ -1431,7 +1432,7 @@ esp_err_t esp_light_sleep_start(void)
 
     esp_clk_private_unlock();
 #ifdef __NuttX__
-    spin_unlock_irqrestore(NULL, spinlock_timer);
+    //spin_unlock_irqrestore(NULL, spinlock_timer);
 #else
     esp_timer_private_unlock();
 #endif
